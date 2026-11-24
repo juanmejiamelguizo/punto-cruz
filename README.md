@@ -9,7 +9,7 @@ Todo corre en el navegador: la foto no sale del aparato.
 - Reduce la imagen a la cuadrícula. En **dibujos** cada cuadro toma el color que más ocupa (sin mezclas de
   borde) y, si una línea oscura cubre ≥22 % del cuadro, gana la línea: los contornos negros finos salen
   negros y cerrados. En **fotos** se promedia en Lab, con la misma regla para trazos oscuros (≥30 %).
-- Escoge los N hilos DMC que mejor la representan (CIEDE2000 con un poco más de peso a la saturación;
+- Escoge los N hilos DMC que mejor la representan (CIEDE2000 con más peso a la saturación y al tono;
   los tonos casi iguales se funden primero y los acentos pequeños pero distintos sobreviven).
 - En dibujos, el casi negro se vuelve 310 y el casi blanco B5200 (no dos negros ni dos blancos).
 - Limpia los puntos sueltos ("confeti"). Si el dibujo tiene fondo blanco, marca solo "No bordar el fondo".
