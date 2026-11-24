@@ -21,7 +21,7 @@
   const rgbToLab = (r, g, b) => linToLab(LIN[r], LIN[g], LIN[b]);
 
   // CIEDE2000: la distancia que mejor se parece a lo que ve el ojo.
-  function de2000(l1, l2) {
+  function de2000(l1, l2, kL = 1, kC = 1) {
     const [L1, a1, b1] = l1, [L2, a2, b2] = l2;
     const rad = Math.PI / 180;
     const C1 = Math.hypot(a1, b1), C2 = Math.hypot(a2, b2), Cm = (C1 + C2) / 2;
@@ -51,7 +51,7 @@
     const Sl = 1 + (0.015 * (Lpm - 50) ** 2) / Math.sqrt(20 + (Lpm - 50) ** 2);
     const Sc = 1 + 0.045 * Cpm, Sh = 1 + 0.015 * Cpm * T;
     const Rt = -Math.sin(2 * dTheta * rad) * Rc;
-    return Math.sqrt((dLp / Sl) ** 2 + (dCp / Sc) ** 2 + (dHp / Sh) ** 2 + Rt * (dCp / Sc) * (dHp / Sh));
+    return Math.sqrt((dLp / (kL * Sl)) ** 2 + (dCp / (kC * Sc)) ** 2 + (dHp / Sh) ** 2 + Rt * (dCp / (kC * Sc)) * (dHp / Sh));
   }
 
   // ---------- carta DMC ----------
@@ -67,37 +67,107 @@
   }
   const dist = (i, j) => DIST[i * THREADS.length + j];
 
+  // Lab de cada píxel: se calcula una vez por imagen (al mover los controles no se repite).
+  const PIX = new WeakMap();
+  function pixelLab(img) {
+    let p = PIX.get(img);
+    if (p) return p;
+    const { width: w, height: h, data } = img, n = w * h;
+    p = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      if (data[i * 4 + 3] < 128) { p[i * 3] = NaN; continue; }
+      const L = rgbToLab(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+      p[i * 3] = L[0]; p[i * 3 + 1] = L[1]; p[i * 3 + 2] = L[2];
+    }
+    PIX.set(img, p);
+    return p;
+  }
+
   // ---------- 1. reducir la foto a la cuadrícula ----------
-  // Promedia todos los píxeles de cada cuadro (en luz lineal, como mezcla el ojo).
-  // img: {width, height, data: RGBA}. Devuelve Lab por cuadro; NaN si el cuadro es transparente.
-  function downsample(img, W, H) {
-    const { width: w, height: h, data } = img;
+  // Foto: cada cuadro es el promedio de sus píxeles (en Lab, como lo percibe el ojo).
+  // Dibujo: cada cuadro toma el color que más ocupa, sin mezclas de borde; y si una línea oscura
+  // (contorno, raya) cubre buena parte del cuadro, gana la línea: así los contornos negros finos no
+  // se pierden ni se vuelven gris.
+  // Devuelve Lab por cuadro; NaN si el cuadro es transparente.
+  const STROKE = 0.22, STROKE_FOTO = 0.3; // fracción del cuadro que debe cubrir una línea oscura para quedarse con él
+  function downsample(img, W, H, mode) {
+    const { width: w, height: h } = img;
+    const px = pixelLab(img);
     const lab = new Float32Array(W * H * 3);
+    const cl = []; // grupos de color del cuadro: [suma L, suma a, suma b, n]
     for (let cy = 0; cy < H; cy++) {
       const y0 = Math.floor((cy * h) / H), y1 = Math.max(y0 + 1, Math.floor(((cy + 1) * h) / H));
       for (let cx = 0; cx < W; cx++) {
         const x0 = Math.floor((cx * w) / W), x1 = Math.max(x0 + 1, Math.floor(((cx + 1) * w) / W));
-        let R = 0, G = 0, B = 0, A = 0, n = 0;
+        const o = (cy * W + cx) * 3, tot = (y1 - y0) * (x1 - x0);
+        let n = 0, sL = 0, sA = 0, sB = 0;
+        cl.length = 0;
         for (let y = y0; y < y1; y++)
-          for (let x = x0, p = (y * w + x0) * 4; x < x1; x++, p += 4) {
-            const a = data[p + 3] / 255;
-            R += LIN[data[p]] * a; G += LIN[data[p + 1]] * a; B += LIN[data[p + 2]] * a; A += a; n++;
+          for (let x = x0, p = (y * w + x0) * 3; x < x1; x++, p += 3) {
+            const L = px[p];
+            if (Number.isNaN(L)) continue;
+            const a = px[p + 1], b = px[p + 2];
+            n++; sL += L; sA += a; sB += b;
+            let g = null;
+            for (const c of cl) {
+              const k = c[3];
+              if ((c[0] / k - L) ** 2 + (c[1] / k - a) ** 2 + (c[2] / k - b) ** 2 < 144) { g = c; break; }
+            }
+            if (g) { g[0] += L; g[1] += a; g[2] += b; g[3]++; } else cl.push([L, a, b, 1]);
           }
-        const o = (cy * W + cx) * 3;
-        if (A / n < 0.5) { lab[o] = NaN; continue; } // casi transparente: no se borda
-        const L = linToLab(R / A, G / A, B / A);
-        lab[o] = L[0]; lab[o + 1] = L[1]; lab[o + 2] = L[2];
+        if (n < tot / 2) { lab[o] = NaN; continue; }
+        let main = cl[0];
+        for (const c of cl) if (c[3] > main[3]) main = c;
+        const mL = main[0] / main[3];
+        // la línea oscura: grupos bastante más oscuros que el color principal
+        let ink = 0, best = null;
+        for (const c of cl) {
+          const L = c[0] / c[3];
+          if (c !== main && L < 45 && L < mL - 25) { ink += c[3]; if (!best || c[3] > best[3]) best = c; }
+        }
+        if (best && ink >= (mode === "dibujo" ? STROKE : STROKE_FOTO) * n) {
+          lab[o] = best[0] / best[3]; lab[o + 1] = best[1] / best[3]; lab[o + 2] = best[2] / best[3];
+        } else if (mode === "dibujo") {
+          lab[o] = main[0] / main[3]; lab[o + 1] = main[1] / main[3]; lab[o + 2] = main[2] / main[3];
+        } else { lab[o] = sL / n; lab[o + 1] = sA / n; lab[o + 2] = sB / n; }
       }
     }
     return lab;
   }
 
-  function nearestIn(L, a, b, cand) {
-    let best = -1, bd = Infinity;
-    for (const k of cand) {
-      const t = THREADS[k].lab, d = (t[0] - L) ** 2 + (t[1] - a) ** 2 + (t[2] - b) ** 2;
-      if (d < bd) { bd = d; best = k; }
+  // Pesa un poco más la saturación que la fórmula estándar: los hilos no alcanzan los colores muy vivos
+  // de una pantalla, y sin esto un cielo azul intenso sale gris azulado.
+  const CHROMA_W = 0.7;
+  // El hilo más parecido (CIEDE2000) entre los candidatos. Se guarda en caché por color redondeado:
+  // en un dibujo hay pocos colores distintos y en una foto se repiten mucho.
+  // Para no medir CIEDE2000 contra todos: se preseleccionan los más cercanos por distancia simple.
+  const SHORTLIST = 16, SL_D = new Float64Array(SHORTLIST), SL_K = new Int32Array(SHORTLIST);
+  function nearestIn(L, a, b, cand, cache) {
+    const key = (Math.round(L) * 256 + Math.round(a) + 128) * 256 + Math.round(b) + 128;
+    const v = cache.get(key);
+    if (v !== undefined) return v;
+    let pool = cand;
+    if (cand.length > SHORTLIST) {
+      // los SHORTLIST más cercanos por distancia simple (inserción en una lista corta ordenada)
+      const sd = SL_D, sk = SL_K;
+      let m = 0;
+      for (let i = 0; i < cand.length; i++) {
+        const k = cand[i], t = THREADS[k].lab;
+        const d = (t[0] - L) ** 2 + (t[1] - a) ** 2 + (t[2] - b) ** 2;
+        if (m === SHORTLIST && d >= sd[m - 1]) continue;
+        let j = m < SHORTLIST ? m++ : m - 1;
+        while (j > 0 && sd[j - 1] > d) { sd[j] = sd[j - 1]; sk[j] = sk[j - 1]; j--; }
+        sd[j] = d; sk[j] = k;
+      }
+      pool = sk;
     }
+    const lab = [L, a, b];
+    let best = -1, bd = Infinity;
+    for (const k of pool) {
+      const e = de2000(lab, THREADS[k].lab, 1, CHROMA_W);
+      if (e < bd) { bd = e; best = k; }
+    }
+    cache.set(key, best);
     return best;
   }
 
@@ -108,10 +178,10 @@
   // los tonos casi iguales se funden primero.
   function choosePalette(lab, N) {
     const all = THREADS.map((_, i) => i);
-    const count = new Map();
+    const count = new Map(), cache = new Map();
     for (let i = 0; i < lab.length; i += 3) {
       if (Number.isNaN(lab[i])) continue;
-      const k = nearestIn(lab[i], lab[i + 1], lab[i + 2], all);
+      const k = nearestIn(lab[i], lab[i + 1], lab[i + 2], all, cache);
       count.set(k, (count.get(k) || 0) + 1);
     }
     const bins = [...count.keys()];
@@ -220,11 +290,20 @@
     const W = Math.max(10, Math.round(opts.width));
     const H = Math.max(10, Math.round((W * img.height) / img.width));
     const N = Math.min(MAX_COLORS, Math.max(2, Math.round(opts.colors)));
-    const lab = downsample(img, W, H);
+    const lab = downsample(img, W, H, opts.mode);
+    // En un dibujo, el casi negro es negro (310) y el casi blanco es blanco: nadie borda un contorno
+    // con "café negruzco" ni compra dos blancos.
+    if (opts.mode === "dibujo")
+      for (let i = 0; i < lab.length; i += 3) {
+        const L = lab[i], C = Math.hypot(lab[i + 1], lab[i + 2]);
+        if (L < 16 && C < 16) lab[i] = lab[i + 1] = lab[i + 2] = 0;
+        else if (L > 96 && C < 4) { lab[i] = 100; lab[i + 1] = lab[i + 2] = 0; }
+      }
     const palette = choosePalette(lab, N);
     let cells = new Int16Array(W * H);
+    const cache = new Map();
     for (let i = 0, j = 0; j < cells.length; i += 3, j++)
-      cells[j] = Number.isNaN(lab[i]) ? EMPTY : nearestIn(lab[i], lab[i + 1], lab[i + 2], palette);
+      cells[j] = Number.isNaN(lab[i]) ? EMPTY : nearestIn(lab[i], lab[i + 1], lab[i + 2], palette, cache);
 
     // En dibujos los colores son planos: se limpia más fuerte.
     const delta = opts.mode === "dibujo" ? 35 : 20;

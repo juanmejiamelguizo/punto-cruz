@@ -34,24 +34,41 @@
     state.img = ctx.getImageData(0, 0, c.width, c.height);
 
     setMode(looksLikeDrawing(state.img) ? "dibujo" : "foto");
+    // Un dibujo sobre fondo blanco o casi blanco: el fondo no se borda (es la tela).
+    $("nobg").checked = state.mode === "dibujo" && whiteBorder(state.img);
     $("title").value = niceTitle(file.name);
     $("pick").hidden = true;
     $("work").hidden = false;
     update();
   }
 
-  // Un dibujo o logo tiene pocos colores que cubren casi todo; una foto, miles.
+  // Un dibujo o logo tiene pocos colores que cubren casi todo; una foto, miles. Se agrupa grueso
+  // (16 niveles por canal) para que un dibujo comprimido por WhatsApp siga contando como dibujo.
   function looksLikeDrawing(img) {
     const m = new Map(), d = img.data;
     let n = 0;
     const step = Math.max(1, Math.floor(d.length / 4 / 40000)) * 4;
     for (let i = 0; i < d.length; i += step) {
       if (d[i + 3] < 128) continue;
-      const k = ((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3);
+      const k = ((d[i] >> 4) << 8) | ((d[i + 1] >> 4) << 4) | (d[i + 2] >> 4);
       m.set(k, (m.get(k) || 0) + 1); n++;
     }
-    const top = [...m.values()].sort((a, b) => b - a).slice(0, 16).reduce((a, b) => a + b, 0);
-    return n > 0 && top / n > 0.75;
+    const top = [...m.values()].sort((a, b) => b - a).slice(0, 24).reduce((a, b) => a + b, 0);
+    return n > 0 && top / n > 0.8;
+  }
+
+  // ¿El borde de la imagen es casi todo blanco (o transparente)?
+  function whiteBorder(img) {
+    const { width: w, height: h, data: d } = img;
+    let n = 0, white = 0;
+    const look = (x, y) => {
+      const i = (y * w + x) * 4;
+      n++;
+      if (d[i + 3] < 128 || (d[i] > 235 && d[i + 1] > 235 && d[i + 2] > 235)) white++;
+    };
+    for (let x = 0; x < w; x += 2) { look(x, 0); look(x, h - 1); }
+    for (let y = 0; y < h; y += 2) { look(0, y); look(w - 1, y); }
+    return white / n > 0.9;
   }
 
   function niceTitle(name) {
