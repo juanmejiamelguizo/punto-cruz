@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Punto de cruz</title>
+<meta name="description" content="Convierte una foto en un patrón de punto de cruz con hilos DMC, listo para imprimir.">
+<meta name="theme-color" content="#fbf8f3">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23b4445c'/%3E%3Cpath d='M9 9l14 14M23 9L9 23' stroke='%23fff' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #fbf8f3; --card: #ffffff; --ink: #2b2622; --soft: #786f68; --line: #e7e0d6;
+    --accent: #b4445c; --accent-ink: #ffffff; --accent-soft: #f6e3e7; --fabric: #f3efe6;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 56px; }
+  h1 { font: 700 30px/1.15 Georgia, "Times New Roman", serif; margin: 6px 0 4px; letter-spacing: -0.01em; }
+  .lead { color: var(--soft); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .pick { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 36px 18px; border-style: dashed; border-width: 2px; }
+  .pick.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .btn { appearance: none; border: 0; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font: 600 16px/1 inherit; font-family: inherit; padding: 14px 22px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-height: 48px; }
+  .btn.secondary { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+  .btn:disabled { opacity: .5; cursor: wait; }
+  .hint { color: var(--soft); font-size: 14px; margin: 0; }
+  .err { color: #9b1c1c; font-weight: 600; }
+  /* En el celular primero la vista y las descargas; en pantalla grande, ajustes a la izquierda. */
+  .layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "preview" "controls" "key"; margin-top: 16px; }
+  .preview { grid-area: preview; } .controls { grid-area: controls; } .keyblock { grid-area: key; }
+  .keyblock h2 { margin-top: 6px; }
+  @media (min-width: 860px) {
+    .layout { grid-template-columns: 320px minmax(0, 1fr); grid-template-areas: "controls preview" "controls key"; align-items: start; }
+    .controls { position: sticky; top: 16px; }
+  }
+  .controls { display: grid; gap: 18px; }
+  .field label, .field .label { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; margin-bottom: 6px; }
+  .field output { font-weight: 400; color: var(--soft); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; }
+  select, input[type=text] { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--fabric); border-radius: 12px; padding: 4px; gap: 4px; }
+  .seg button { font: inherit; border: 0; border-radius: 9px; padding: 10px 6px; background: transparent; color: var(--ink); cursor: pointer; min-height: 44px; }
+  .seg button[aria-pressed=true] { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
+  .dims { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: end; }
+  .dim { display: grid !important; gap: 4px; font-weight: 400 !important; color: var(--soft); font-size: 14px; margin: 0 !important; }
+  .dim span { display: flex; align-items: center; gap: 6px; color: var(--ink); font-size: 16px; }
+  .dim input { width: 100%; min-width: 0; font: inherit; font-size: 18px; font-weight: 600; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); }
+  .x { padding-bottom: 12px; color: var(--soft); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chips button { font: inherit; font-size: 14px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 999px; padding: 7px 12px; min-height: 36px; cursor: pointer; }
+  .chips button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .check { display: flex; gap: 10px; align-items: flex-start; font-weight: 600; }
+  .check input { width: 22px; height: 22px; accent-color: var(--accent); margin: 1px 0 0; flex: none; }
+  .check span small { display: block; font-weight: 400; color: var(--soft); font-size: 14px; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--fabric); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--soft); font-size: 13px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+  .tabs button { font: inherit; border: 0; background: transparent; padding: 8px 12px; border-radius: 999px; cursor: pointer; color: var(--soft); min-height: 40px; }
+  .tabs button[aria-selected=true] { background: var(--ink); color: #fff; }
+  .view { background: var(--fabric); border-radius: 10px; overflow: auto; max-height: 70vh; display: flex; justify-content: center; align-items: flex-start; }
+  .view canvas { display: block; max-width: 100%; height: auto; image-rendering: auto; }
+  .view.zoom canvas { max-width: none; }
+  .downloads { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th { text-align: left; color: var(--soft); font-weight: 600; font-size: 13px; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td canvas { display: block; width: 26px; height: 26px; border-radius: 4px; }
+  .name { color: var(--soft); }
+  h2 { font: 700 20px/1.2 Georgia, serif; margin: 22px 0 8px; }
+  [hidden] { display: none !important; }
+  .busy { position: fixed; inset: auto 16px 16px auto; background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 14px; }
+  footer { margin-top: 32px; color: var(--soft); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Punto de cruz</h1>
+  <p class="lead">Convierte una foto en un patrón con hilos DMC, listo para imprimir.</p>
+
+  <label class="card pick" id="pick">
+    <span class="btn">Elegir foto</span>
+    <input id="file" type="file" accept="image/*" hidden>
+    <p class="hint">Antes de subirla, recórtala en el celular para dejar solo lo que quieres bordar.<br>La foto no sale de este aparato.</p>
+    <p class="err" id="err" hidden></p>
+  </label>
+
+  <div class="layout" id="work" hidden>
+    <section class="card controls" aria-label="Ajustes">
+      <div class="field">
+        <div class="label">Tipo de imagen</div>
+        <div class="seg" role="group">
+          <button type="button" data-mode="foto" aria-pressed="true">Foto</button>
+          <button type="button" data-mode="dibujo" aria-pressed="false">Dibujo o logo</button>
+        </div>
+      </div>
+      <div class="field">
+        <div class="label">Tamaño terminado <output id="widthOut"></output></div>
+        <div class="dims">
+          <label class="dim">Ancho<span><input id="wcm" type="number" inputmode="decimal" min="3" max="80" step="0.5"> cm</span></label>
+          <span class="x" aria-hidden="true">×</span>
+          <label class="dim">Alto<span><input id="hcm" type="number" inputmode="decimal" min="3" max="80" step="0.5"> cm</span></label>
+        </div>
+        <div class="chips" role="group" aria-label="Tamaños rápidos">
+          <button type="button" data-cm="10">10 cm</button><button type="button" data-cm="15">15 cm</button><button type="button" data-cm="20">20 cm</button><button type="button" data-cm="25">25 cm</button><button type="button" data-cm="30">30 cm</button>
+        </div>
+        <p class="hint" id="sizeHint"></p>
+      </div>
+      <div class="field">
+        <label for="colors">Colores <output id="colorsOut"></output></label>
+        <input id="colors" type="range" min="2" max="60" step="1" value="30">
+        <p class="hint">Más colores = más parecido a la foto, pero más hilos que comprar.</p>
+      </div>
+      <div class="field">
+        <label for="fabric">Tela</label>
+        <select id="fabric">
+          <option value="11">Aida 11 (cuadros grandes)</option>
+          <option value="14" selected>Aida 14 (la más común)</option>
+          <option value="16">Aida 16</option>
+          <option value="18">Aida 18 (cuadros pequeños)</option>
+        </select>
+      </div>
+      <label class="check"><input id="nobg" type="checkbox"><span>No bordar el fondo<small>Para cuando el fondo es liso: deja esa parte en la tela.</small></span></label>
+      <div class="field">
+        <label for="title">Nombre del diseño</label>
+        <input id="title" type="text" maxlength="60">
+      </div>
+      <label class="btn secondary" for="file2" style="justify-content:center">Cambiar foto<input id="file2" type="file" accept="image/*" hidden></label>
+    </section>
+
+      <div class="card preview">
+        <div class="summary" id="summary"></div>
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="stitched">Cómo quedará</button>
+          <button role="tab" aria-selected="false" data-tab="chart">Patrón</button>
+        </div>
+        <div class="view" id="view"><canvas id="canvas"></canvas></div>
+        <div class="downloads">
+          <button class="btn" id="pdfColor">Descargar PDF a color</button>
+          <button class="btn secondary" id="pdfBW">PDF en blanco y negro</button>
+        </div>
+        <p class="hint" style="margin-top:8px">El de blanco y negro ahorra tinta: cada color se reconoce por su símbolo.</p>
+      </div>
+    <section class="keyblock">
+      <h2>Hilos para comprar</h2>
+      <div class="card" style="padding:8px 12px">
+        <table>
+          <thead><tr><th></th><th>DMC</th><th>Color</th><th class="num">Puntos</th><th class="num">Madejas</th></tr></thead>
+          <tbody id="keyBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <div class="busy" id="busy" hidden>Preparando…</div>
+  <footer>Colores de la carta DMC clásica (454 hilos). Las madejas son un cálculo aproximado para 2 hebras.</footer>
+</main>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="dmc.js"></script>
+<script src="core.js"></script>
+<script src="pdf.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
