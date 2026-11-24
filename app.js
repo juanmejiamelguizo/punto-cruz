@@ -57,14 +57,15 @@
     return n > 0 && top / n > 0.8;
   }
 
-  // ¿El borde de la imagen es casi todo blanco (o transparente)?
+  // ¿El borde de la imagen es casi todo blanco? (Lo transparente no cuenta: ya queda sin bordar, y si
+  // se contara, en un PNG recortado se borraría la figura que toca el borde.)
   function whiteBorder(img) {
     const { width: w, height: h, data: d } = img;
     let n = 0, white = 0;
     const look = (x, y) => {
       const i = (y * w + x) * 4;
       n++;
-      if (d[i + 3] < 128 || (d[i] > 235 && d[i + 1] > 235 && d[i + 2] > 235)) white++;
+      if (d[i + 3] >= 128 && d[i] > 235 && d[i + 1] > 235 && d[i + 2] > 235) white++;
     };
     for (let x = 0; x < w; x += 2) { look(x, 0); look(x, h - 1); }
     for (let y = 0; y < h; y += 2) { look(0, y); look(w - 1, y); }

@@ -64,4 +64,20 @@ assert.ok(r11.skeins > r14.skeins);
     assert.ok(ink < ideal * 1.6, `contorno delgado a ${W} puntos (${ink} vs ${ideal | 0})`);
   }
 }
+
+// Colores planos: cada uno debe caer en un hilo de su misma familia (no morado→rosado, ni
+// rojo y naranja en el mismo hilo).
+{
+  const sw = [[228, 48, 36], [255, 96, 60], [130, 50, 160], [190, 150, 220], [30, 90, 200], [40, 40, 40]];
+  const S = 50, d = new Uint8ClampedArray(sw.length * S * S * 4);
+  for (let y = 0; y < S; y++) for (let x = 0; x < sw.length * S; x++) d.set([...sw[(x / S) | 0], 255], (y * sw.length * S + x) * 4);
+  const W = sw.length * 5;
+  const p = C.makePattern({ width: sw.length * S, height: S, data: d }, { width: W, colors: 10, mode: "dibujo", fabric: 14 });
+  const code = (i) => p.colors[p.cells[2 * W + i * 5 + 2]].code;
+  assert.notEqual(code(0), code(1), "rojo y naranja en hilos distintos");
+  assert.ok(["3837", "552", "550", "327", "208", "209", "333", "3746"].includes(code(2)), `morado: ${code(2)}`);
+  assert.ok(["210", "209", "211", "3746", "340", "155", "554", "3836", "3042"].includes(code(3)), `lila: ${code(3)}`);
+  assert.ok(["797", "796", "820", "336", "799", "798", "3838"].includes(code(4)), `azul: ${code(4)}`);
+  assert.equal(code(5), "310", "gris muy oscuro en un dibujo = negro");
+}
 console.log("ok: todas las pruebas pasaron");

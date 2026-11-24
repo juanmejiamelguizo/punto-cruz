@@ -21,7 +21,7 @@
   const rgbToLab = (r, g, b) => linToLab(LIN[r], LIN[g], LIN[b]);
 
   // CIEDE2000: la distancia que mejor se parece a lo que ve el ojo.
-  function de2000(l1, l2, kL = 1, kC = 1) {
+  function de2000(l1, l2, kL = 1, kC = 1, kH = 1) {
     const [L1, a1, b1] = l1, [L2, a2, b2] = l2;
     const rad = Math.PI / 180;
     const C1 = Math.hypot(a1, b1), C2 = Math.hypot(a2, b2), Cm = (C1 + C2) / 2;
@@ -51,7 +51,7 @@
     const Sl = 1 + (0.015 * (Lpm - 50) ** 2) / Math.sqrt(20 + (Lpm - 50) ** 2);
     const Sc = 1 + 0.045 * Cpm, Sh = 1 + 0.015 * Cpm * T;
     const Rt = -Math.sin(2 * dTheta * rad) * Rc;
-    return Math.sqrt((dLp / (kL * Sl)) ** 2 + (dCp / (kC * Sc)) ** 2 + (dHp / Sh) ** 2 + Rt * (dCp / (kC * Sc)) * (dHp / Sh));
+    return Math.sqrt((dLp / (kL * Sl)) ** 2 + (dCp / (kC * Sc)) ** 2 + (dHp / (kH * Sh)) ** 2 + Rt * (dCp / (kC * Sc)) * (dHp / (kH * Sh)));
   }
 
   // ---------- carta DMC ----------
@@ -135,9 +135,10 @@
     return lab;
   }
 
-  // Pesa un poco más la saturación que la fórmula estándar: los hilos no alcanzan los colores muy vivos
-  // de una pantalla, y sin esto un cielo azul intenso sale gris azulado.
-  const CHROMA_W = 0.7;
+  // Pesa más la saturación y, sobre todo, el tono que la fórmula estándar: los hilos no alcanzan los
+  // colores muy vivos de una pantalla; sin esto un cielo intenso sale gris azulado, y si solo se
+  // premia la saturación el morado se vuelve rosado. Ajustado con fotos y muestras de colores.
+  const LIGHT_W = 1, CHROMA_W = 0.6, HUE_W = 0.5;
   // El hilo más parecido (CIEDE2000) entre los candidatos. Se guarda en caché por color redondeado:
   // en un dibujo hay pocos colores distintos y en una foto se repiten mucho.
   // Para no medir CIEDE2000 contra todos: se preseleccionan los más cercanos por distancia simple.
@@ -164,7 +165,7 @@
     const lab = [L, a, b];
     let best = -1, bd = Infinity;
     for (const k of pool) {
-      const e = de2000(lab, THREADS[k].lab, 1, CHROMA_W);
+      const e = de2000(lab, THREADS[k].lab, LIGHT_W, CHROMA_W, HUE_W);
       if (e < bd) { bd = e; best = k; }
     }
     cache.set(key, best);
@@ -296,7 +297,7 @@
     if (opts.mode === "dibujo")
       for (let i = 0; i < lab.length; i += 3) {
         const L = lab[i], C = Math.hypot(lab[i + 1], lab[i + 2]);
-        if (L < 16 && C < 16) lab[i] = lab[i + 1] = lab[i + 2] = 0;
+        if (L < 20 && C < 14) lab[i] = lab[i + 1] = lab[i + 2] = 0;
         else if (L > 96 && C < 4) { lab[i] = 100; lab[i + 1] = lab[i + 2] = 0; }
       }
     const palette = choosePalette(lab, N);
